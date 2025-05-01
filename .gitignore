@@ -1,3 +1,6 @@
 notes.md
 .musetalk
 **/__pycache__/
+*.json
+results/*
+testing/*

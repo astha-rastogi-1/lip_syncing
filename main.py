@@ -18,7 +18,7 @@ pending_jobs = {}
 job_log_path = Path("job_logs.json")
 
 # Load the Modal function remotely by referencing the app and function name
-run_inference_function = modal.Function.from_name("musetalk-inference", "run_inference")
+# run_inference_function = modal.Function.from_name("musetalk-inference", "run_inference")
 
 # Save job_id persistently
 def save_job_metadata(job_id, status="pending"):
@@ -37,8 +37,8 @@ def load_job_metadata():
             return json.load(f)
     return {}
 
-@app.post("/jobs")
-async def create_job(video: UploadFile = File(...), audio: UploadFile = File(...)):
+@app.post("/jobs/{gpu_type}")
+async def create_job(gpu_type: str, video: UploadFile = File(...), audio: UploadFile = File(...)):
     """
     Endpoint to accept video and audio files, spawn the inference job asynchronously,
     and return the job ID with its status.
@@ -52,6 +52,8 @@ async def create_job(video: UploadFile = File(...), audio: UploadFile = File(...
     # pending_jobs[job_id] = 'pending'
     save_job_metadata(job_id, status="pending")
     # Spawn Modal function with file contents
+    function_name = f"run_inference_{gpu_type.lower()}"
+    run_inference_function = modal.Function.from_name("musetalk-inference", function_name)
     function_call = run_inference_function.spawn(
         job_id=job_id,
         video_content=video_content,  # Pass bytes directly
@@ -83,25 +85,14 @@ async def get_job_status(job_id: str):
         function_call = pending_jobs[job_id]
     else:
         function_call = FunctionCall.from_id(stored_fc_ids[job_id])
-    print('Got function call: ', function_call)
     try:
         # Check if job is done (non-blocking)
-        print('Inside try')
         video_bytes = function_call.get(timeout=0)  # Timeout=0 for polling
-        print('Got results dir')
         local_path = f"./results/{job_id}_output_video.mp4"
         os.makedirs(os.path.dirname(local_path), exist_ok=True)
         with open(local_path, "wb") as f:
             f.write(video_bytes)
         return FileResponse(local_path, media_type="video/mp4", filename="lip_synced_video.mp4")
-        # output_video_path = os.path.join(result_dir, "output_video.mp4")
-        
-        # # Save a backup just in case
-        # backup_path = os.path.join("./root/backups", f"{job_id}_output_video.mp4")
-        # os.makedirs(os.path.dirname(backup_path), exist_ok=True)
-        # shutil.copy(output_video_path, backup_path)
-
-        # return FileResponse(output_video_path, ...)
         
     except TimeoutError:
         # Job still pending

@@ -5,6 +5,7 @@ import uuid
 import shutil
 import os
 import yaml
+from pathlib import Path
 
 app = modal.App("musetalk-inference")
 
@@ -38,12 +39,12 @@ musetalk_image = (
     )
 )
 
-@app.function(
-    image=musetalk_image,
-    gpu="T4",
-    mounts=[musetalk_mount],  # ← models will be available in /root/MuseTalk/models
-    timeout=1200
-)
+# @app.function(
+#     image=musetalk_image,
+#     gpu="T4",
+#     mounts=[musetalk_mount],  # ← models will be available in /root/MuseTalk/models
+#     timeout=1200
+# )
 async def run_inference(job_id: str, video_content: bytes, audio_content: bytes):
     import subprocess
     import os
@@ -79,17 +80,6 @@ async def run_inference(job_id: str, video_content: bytes, audio_content: bytes)
     with open(config_path, "w") as yaml_file:
         yaml.dump(config_data, yaml_file, sort_keys=False, default_flow_style=False)
 
-    # # Ensure the paths are compatible with Linux and copy files to the container's accessible directory
-    # container_video_path = f"/root/MuseTalk/tmp/{job_id}_video.mp4"
-    # container_audio_path = f"/root/MuseTalk/tmp/{job_id}_audio.wav"
-
-    # # Copy video and audio files to the accessible directory in the container
-    # shutil.copy(video_path, container_video_path)
-    # shutil.copy(audio_path, container_audio_path)
-
-    # result_dir = f"results/{job_id}"
-    # # Ensure the result directory exists
-    # os.makedirs(result_dir, exist_ok=True)
     unet_model = "models/musetalkV15/unet.pth"
     unet_config = "models/musetalkV15/musetalk.json"
     ffmpeg_path = "/usr/bin/ffmpeg"
@@ -111,36 +101,16 @@ async def run_inference(job_id: str, video_content: bytes, audio_content: bytes)
         video_bytes = f.read()
     return video_bytes
 
-## FASTAPI ENDPOINTS
-# @app.function(image=musetalk_image)
-# @modal.fastapi_endpoint(method="POST")  # Expose as POST endpoint
-# async def process_files(video: UploadFile = File(...), audio: UploadFile = File(...)):
-#     # Create a unique directory to store the uploaded files
-#     unique_id = uuid.uuid4().hex
-#     temp_video_path = f"/tmp/{unique_id}_video.mp4"
-#     temp_audio_path = f"/tmp/{unique_id}_audio.mp3"
-#     # Save uploaded files
-#     with open(temp_video_path, "wb") as video_file:
-#         shutil.copyfileobj(video.file, video_file)
-    
-#     with open(temp_audio_path, "wb") as audio_file:
-#         shutil.copyfileobj(audio.file, audio_file)
-    
-#     # Call the inference function to process the files
-#     result_dir = await modal.Function(run_inference)(temp_video_path, temp_audio_path)
-#     # The processed video will be saved in the result directory
-#     output_video_path = os.path.join(result_dir, "output_video.mp4")
 
-#     # Return the video file as a response
-#     return FileResponse(output_video_path)
+# Register GPU-specific versions at global scope
+@app.function(image=musetalk_image, gpu="T4", timeout=1200)
+async def run_inference_t4(job_id: str, video_content: bytes, audio_content: bytes):
+    return await run_inference(job_id, video_content, audio_content)
 
-# image = modal.Image.debian_slim().pip_install("fastapi[standard]")
-# @app.function(image=image)
-# @modal.asgi_app()
-# def app_instance():
-#     from fastapi import FastAPI
-#     web_app = FastAPI()
+@app.function(image=musetalk_image, gpu="A10G", timeout=1200)
+async def run_inference_a10g(job_id: str, video_content: bytes, audio_content: bytes):
+    return await run_inference(job_id, video_content, audio_content)
 
-#     # Add the endpoint to FastAPI
-#     web_app.post("/upload")(process_files)
-#     return web_app
+@app.function(image=musetalk_image, gpu="A100-40GB", timeout=1200)
+async def run_inference_a100(job_id: str, video_content: bytes, audio_content: bytes):
+    return await run_inference(job_id, video_content, audio_content)
